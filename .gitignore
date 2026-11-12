@@ -1,6 +1,19 @@
+# 构建产物
 target/
+dependency-reduced-pom.xml
+
+# 编辑器 / IDE
 .idea/
 *.iml
 .classpath
 .project
 .settings/
+.vscode/
+
+# 日志与崩溃转储
+*.log
+*.hprof
+
+# 操作系统
+.DS_Store
+Thumbs.db
