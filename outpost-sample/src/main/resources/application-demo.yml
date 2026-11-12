@@ -1,0 +1,13 @@
+# demo profile：开启 Outpost 全链路，需要本地 MySQL 8 + Redis 7。
+outpost:
+  enabled: true
+  auto-create-table: true
+  schedule:
+    type: redis-lock
+    fixed-delay-ms: 1000
+    batch-size: 100
+  delivery-cache:
+    handler-type: cache_delete
+    double-delete:
+      enabled: true
+      delay-millis: 1000

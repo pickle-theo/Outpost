@@ -1,0 +1,16 @@
+# 示例工程默认关闭 Outpost，保证不连接 MySQL/Redis 也能正常启动。
+# 需要跑通完整链路时：先启动本地 MySQL 8 与 Redis 7，再执行
+#   mvn -pl outpost-sample spring-boot:run -Dspring-boot.run.profiles=demo
+# 或直接使用 Testcontainers 集成测试（mvn verify）。
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/outpost?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  redis:
+    host: localhost
+    port: 6379
+
+outpost:
+  enabled: false
