@@ -4,6 +4,7 @@ import com.outpost.core.config.OutpostConfigurationException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -13,6 +14,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
  * 通过 StringRedisTemplate 同时兼容 Jedis / Lettuce。
  */
 @Configuration(proxyBeanMethods = false)
+@Conditional(OutpostRedisRequiredCondition.class)
 public class OutpostRedisConfiguration {
 
     @Bean

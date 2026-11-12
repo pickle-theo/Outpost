@@ -54,11 +54,16 @@ public class OutpostStartupValidator implements InitializingBean {
                             + "请引入 spring-boot-starter-jdbc / -jpa 或自行声明事务管理器");
         }
 
-        if (context.getBeanNamesForType(StringRedisTemplate.class, false, false).length == 0) {
+        boolean redisRequired = OutpostRedisRequirement.isRequired(properties)
+                && !hasCustomDistributedLock();
+        if (redisRequired
+                && context.getBeanNamesForType(StringRedisTemplate.class, false, false).length == 0) {
             throw new OutpostConfigurationException(
-                    "Outpost 未发现 StringRedisTemplate，缓存失效处理器与 Redis 调度锁均依赖 Redis；"
-                            + "请引入 spring-boot-starter-data-redis 并配置 Redis 连接，"
-                            + "或自行声明 StringRedisTemplate bean");
+                    "Outpost 当前配置需要 Redis（启用缓存处理器或使用 redis 锁），但未发现 StringRedisTemplate；"
+                            + "请引入 spring-boot-starter-data-redis 并配置 Redis 连接、"
+                            + "声明 StringRedisTemplate bean，"
+                            + "或在纯通用场景关闭 outpost.delivery-cache.enabled 并使用 "
+                            + "outpost.schedule.lock-type=local（仅单实例）");
         }
 
         String configuredType = properties.getSchedule().getType();
@@ -81,7 +86,15 @@ public class OutpostStartupValidator implements InitializingBean {
                             + "当前可用实现: [" + available + "]。"
                             + "请修正配置或提供自定义 OutpostScheduler bean");
         }
-        LOG.info("Outpost 启动校验通过，schedule.type={}, handler bizTypes={}, dataSource={}",
-                configuredType, registry.bizTypes(), dataSource.getClass().getSimpleName());
+        LOG.info("Outpost 启动校验通过，schedule.type={}, lock-type={}, handler bizTypes={}, dataSource={}",
+                configuredType, properties.getSchedule().getLockType(), registry.bizTypes(),
+                dataSource.getClass().getSimpleName());
+    }
+
+    /**
+     * 业务提供了自定义 DistributedLock 时，即使 lock-type=redis 也不再强制要求 Redis 模板。
+     */
+    private boolean hasCustomDistributedLock() {
+        return OutpostRedisRequirement.hasCustomLock(context);
     }
 }

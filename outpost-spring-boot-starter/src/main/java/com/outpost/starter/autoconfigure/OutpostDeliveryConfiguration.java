@@ -1,6 +1,7 @@
 package com.outpost.starter.autoconfigure;
 
 import com.outpost.core.cleanup.OutpostCleanupScheduler;
+import com.outpost.core.config.OutpostConfigurationException;
 import com.outpost.core.config.OutpostDataSourceProvider;
 import com.outpost.core.config.OutpostProperties;
 import com.outpost.core.delivery.DeadMessageListener;
@@ -21,6 +22,7 @@ import com.outpost.core.schedule.OutpostScheduler;
 import com.outpost.core.schedule.ScheduleRoundExecutor;
 import com.outpost.starter.delivery.LoggingDeadMessageListener;
 import com.outpost.starter.executor.TraceIdTaskDecorator;
+import com.outpost.starter.scheduler.LocalDistributedLock;
 import com.outpost.starter.scheduler.RedisDistributedLock;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -116,7 +118,18 @@ public class OutpostDeliveryConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(DistributedLock.class)
-    public DistributedLock outpostDistributedLock(StringRedisTemplate redisTemplate) {
+    public DistributedLock outpostDistributedLock(ObjectProvider<StringRedisTemplate> redisTemplates,
+                                                  OutpostProperties properties) {
+        if ("local".equals(properties.getSchedule().getLockType())) {
+            return new LocalDistributedLock();
+        }
+        StringRedisTemplate redisTemplate = redisTemplates.getIfAvailable();
+        if (redisTemplate == null) {
+            throw new OutpostConfigurationException(
+                    "outpost.schedule.lock-type=redis 但未发现 StringRedisTemplate；"
+                            + "请引入 spring-boot-starter-data-redis 并配置 Redis 连接，"
+                            + "或改用 outpost.schedule.lock-type=local（仅单实例部署）");
+        }
         return new RedisDistributedLock(redisTemplate);
     }
 
