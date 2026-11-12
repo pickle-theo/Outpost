@@ -107,6 +107,8 @@ public class OutpostProperties {
 
         private boolean enabled = true;
         private String type = "redis-lock";
+        /** 分布式锁实现：redis（默认，多实例）或 local（单实例，无需 Redis） */
+        private String lockType = "redis";
         private long fixedDelayMs = 5000L;
         private int batchSize = 100;
         private int coreSize = 2;
@@ -131,6 +133,14 @@ public class OutpostProperties {
 
         public void setType(String type) {
             this.type = type;
+        }
+
+        public String getLockType() {
+            return lockType;
+        }
+
+        public void setLockType(String lockType) {
+            this.lockType = lockType;
         }
 
         public long getFixedDelayMs() {

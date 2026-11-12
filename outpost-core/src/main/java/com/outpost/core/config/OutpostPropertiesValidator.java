@@ -166,6 +166,12 @@ public class OutpostPropertiesValidator {
                     "非空字符串（具体实现是否存在由装配阶段校验）");
         }
 
+        // k) 锁类型必须是内置实现之一
+        String lockType = schedule.getLockType();
+        if (!"redis".equals(lockType) && !"local".equals(lockType)) {
+            throw fail("outpost.schedule.lock-type", lockType, "取值必须是 redis 或 local");
+        }
+
         return warnings;
     }
 

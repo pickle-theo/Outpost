@@ -298,6 +298,7 @@ public final class DefaultOutpostAdminService implements OutpostAdminService {
         OutpostProperties.Schedule cs = copy.getSchedule();
         cs.setEnabled(s.isEnabled());
         cs.setType(s.getType());
+        cs.setLockType(s.getLockType());
         cs.setFixedDelayMs(s.getFixedDelayMs());
         cs.setBatchSize(s.getBatchSize());
         cs.setCoreSize(s.getCoreSize());
