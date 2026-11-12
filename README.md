@@ -339,4 +339,8 @@ Boot 3 不兼容的原因：Spring Framework 6 移除了 `JdbcTemplate` 的 `que
 
 ## 许可证
 
-仓库当前未包含 `LICENSE` 文件；在补充许可声明前，请将本项目视为内部使用，对外分发请先与维护者确认。
+本项目采用 [Apache License 2.0](LICENSE)。在遵守该许可证条款的前提下，你可以自由使用、修改和分发本项目的源代码与衍生作品。
+
+- 版权归属：Copyright 2026 Outpost Authors
+- 专利授权与免责声明见 [LICENSE](LICENSE) 全文
+- 使用本项目时请保留版权、专利、商标与署名声明；修改文件需标注变更说明
