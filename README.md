@@ -1,12 +1,14 @@
 # Outpost
 
-**基于本地消息表的缓存一致性 SDK（Java / Spring Boot）**
+**通用 Transactional Outbox SDK（Java / Spring Boot）· 内置缓存一致性处理器**
 
 [![Version](https://img.shields.io/badge/version-1.0.0--SNAPSHOT-yellow)](#兼容性) [![Java](https://img.shields.io/badge/Java-8%2B-orange)](#兼容性) [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-2.3%20--%202.7-brightgreen)](#兼容性) [![Maven](https://img.shields.io/badge/Maven-Wrapper%203.9.9-blue)](#开发)
 
-> **一句话说明**：把「缓存失效」和「业务写库」放进同一个数据库事务，事务提交后由后台调度器持续重试投递，从而消除「DB 提交成功、异步删缓存失败」留下的永久脏缓存。
+> **一句话说明**：把「下游异步动作」和「业务写库」放进同一个数据库事务，事务提交后由后台调度器持续重试投递，保证业务提交成功后下游动作最终执行。
 
 Outpost 是**最终一致性**方案，不追求提交后立即一致。业务事务提交成功时，注册在同一事务里的消息一定已落库；调度器按退避策略重试，直到成功或进入死信，死信可通过运维 API 重发。
+
+**缓存失效是内置的第一种场景，不是能力边界**：注册、调度、抢占、退避、死信、清理、运维、指标全链路都与 `bizType` 无关。任何幂等的异步动作（发 MQ、HTTP 回调、索引同步、通知推送、延迟任务等）都可以实现 `DeliveryHandler` 接入，详见[通用业务消息](#通用业务消息)。
 
 ---
 
@@ -16,6 +18,7 @@ Outpost 是**最终一致性**方案，不追求提交后立即一致。业务�
 - [特性](#特性)
 - [模块](#模块)
 - [快速开始](#快速开始)
+- [通用业务消息](#通用业务消息)
 - [配置](#配置)
 - [运维与观测](#运维与观测)
 - [兼容性](#兼容性)
@@ -28,31 +31,34 @@ Outpost 是**最终一致性**方案，不追求提交后立即一致。业务�
 
 ## 为什么需要 Outpost
 
-常见的「先更新 DB，再删缓存」在删缓存失败时只会留下一条日志，缓存中的旧值会一直保留到过期甚至永久残留。Outpost 用一张 `outpost_message` 表把缓存失效变成**可持久化、可重试、可观测**的动作：
+「先提交 DB，再执行异步动作」在动作失败时通常只留下一条日志：缓存里的旧值、没发出去的事件、漏掉的回调都可能永久丢失。Outpost 用一张 `outpost_message` 表把下游动作变成**可持久化、可重试、可观测**的消息：
 
 ```text
 业务事务  ──►  业务表 UPDATE
           └──►  outpost_message INSERT（同连接、同事务、beforeCommit）
                      │
                      ▼
-              后台调度器（Redis 锁 / CAS 抢占）
+              后台调度器（分布式锁 / CAS 抢占）
                      │
                      ▼
-              DEL 或 TagAsDeleted（幂等）
+              DeliveryHandler（幂等：DEL / TagAsDeleted / MQ / HTTP / …）
                      │
           成功 → SUCCESS / 失败 → 退避重试 / 耗尽 → DEAD（可重发）
 ```
+
+缓存一致性是这一模型最典型的应用：「DB 提交成功、异步删缓存失败」留下的永久脏缓存由此被消除。
 
 <a id="特性"></a>
 
 ## 特性
 
+- **通用 Outbox**：`bizType` 由业务定义，`DeliveryHandler` SPI 承接任意幂等异步动作；SDK 只负责可靠投递。
 - **同库同事务**：消息与业务数据共用同一个 `DataSource` 与事务，业务回滚则消息不落库。
-- **双 API**：编程式 `OutpostTemplate` 与注解式 `@OutboxMessage` / `@OutboxCache`（SpEL）。
-- **可靠投递**：Redis 锁调度、批量抢占、逐条 CAS 降级、`PROCESSING` 超时重置、阶梯退避、死信治理。
-- **两种缓存处理器**：`cache_delete`（DEL + 可选延迟双删）与 `cache_tag_delete`（原生 rockscache Lua，无三方 SDK 依赖）。
+- **双 API**：编程式 `OutpostTemplate`（含延迟消息）与注解式 `@OutboxMessage` / `@OutboxCache`（SpEL）。
+- **可靠投递**：分布式锁调度、批量抢占、逐条 CAS 降级、`PROCESSING` 超时重置、阶梯退避、死信治理。
+- **内置缓存处理器**：`cache_delete`（DEL + 可选延迟双删）与 `cache_tag_delete`（原生 rockscache Lua，无三方 SDK 依赖），可整体关闭。
 - **可运维**：查询/重发/统计/热更的 `OutpostAdminService`、每日清理任务、8 个固定 Micrometer 指标。
-- **可关闭**：`outpost.enabled=false` 时不装配任何 Bean，应用启动不受影响。
+- **可关闭**：`outpost.enabled=false` 时不装配任何 Bean；纯通用场景也可关闭全部缓存依赖。
 
 <a id="模块"></a>
 
@@ -60,9 +66,9 @@ Outpost 是**最终一致性**方案，不追求提交后立即一致。业务�
 
 | 模块 | 职责 | 发布 |
 | --- | --- | --- |
-| [`outpost-core`](outpost-core/pom.xml) | 事务聚合、状态机、重试、调度 SPI、运维 SPI。仅依赖 `spring-tx` + SLF4J，不含 Spring Boot / ORM | 是 |
-| [`outpost-spring-boot-starter`](outpost-spring-boot-starter/pom.xml) | 自动装配、JdbcTemplate 仓储、AOP、Redis 锁、缓存处理器、rockscache 读客户端、Micrometer 指标 | 是 |
-| [`outpost-sample`](outpost-sample/pom.xml) | 可运行示例与 Testcontainers（MySQL 8 + Redis 7）集成测试 | 否 |
+| [`outpost-core`](outpost-core/pom.xml) | 通用 Outbox 内核：事务聚合、状态机、重试、调度 SPI、运维 SPI。仅依赖 `spring-tx` + SLF4J，不含 Spring Boot / ORM | 是 |
+| [`outpost-spring-boot-starter`](outpost-spring-boot-starter/pom.xml) | 自动装配、JdbcTemplate 仓储、AOP、可插拔分布式锁、内置缓存处理器、rockscache 读客户端、Micrometer 指标 | 是 |
+| [`outpost-sample`](outpost-sample/pom.xml) | 缓存与通用业务消息两套可运行示例 + Testcontainers 集成测试 | 否 |
 
 <a id="快速开始"></a>
 
@@ -75,7 +81,7 @@ Outpost 是**最终一致性**方案，不追求提交后立即一致。业务�
 | JDK | 源码以 `--release 8` 编译；测试建议在 JDK 17+ 运行 |
 | 构建 | 仓库自带 Maven Wrapper（Maven 3.9.9），无需预装 Maven |
 | 数据库 | MySQL 5.7+ / 8.0+，消息表与业务表**同库** |
-| Redis | 单机 / 哨兵 / 集群均可，通过 `StringRedisTemplate` 接入 |
+| Redis | 缓存处理器或 `lock-type=redis` 时需要；纯通用场景可完全不需要 |
 
 ### 1. 建表
 
@@ -91,7 +97,7 @@ Outpost 是**最终一致性**方案，不追求提交后立即一致。业务�
 </dependency>
 ```
 
-应用需提供 `DataSource`（多数据源时标记 `@Primary` 或提供 `OutpostDataSourceProvider`）、`PlatformTransactionManager` 与 `StringRedisTemplate`。
+应用需提供 `DataSource`（多数据源时标记 `@Primary` 或提供 `OutpostDataSourceProvider`）与 `PlatformTransactionManager`；启用缓存处理器或使用 `lock-type=redis` 时还需要 `StringRedisTemplate`。
 
 ### 3. 配置
 
@@ -103,7 +109,7 @@ outpost:
     handler-type: cache_delete    # 或 cache_tag_delete
 ```
 
-### 4. 注册消息
+### 4. 注册消息（内置缓存场景）
 
 编程式：
 
@@ -125,7 +131,87 @@ public void updateOrder(String orderId) {
 }
 ```
 
-自定义业务动作只需把 `DeliveryHandler` 注册为 Spring Bean，`bizType` 全局唯一（重复会启动失败）。完整示例见 [`outpost-sample`](outpost-sample/src/main/java/com/outpost/sample)。
+<a id="通用业务消息"></a>
+
+## 通用业务消息
+
+缓存一致性只是内置场景。任意「事务提交后需要最终执行」的幂等动作都可以接入：
+
+| 场景 | `bizType` 示例 | `DeliveryHandler` 动作 |
+| --- | --- | --- |
+| MQ / 领域事件 | `order_paid` | 发送订单已支付事件（用 `bizKey` 做业务侧去重） |
+| 外部回调 / Webhook | `webhook_notify` | 调用第三方 HTTP 接口 |
+| 搜索 / 索引同步 | `search_index` | 重建 ES 文档或物化视图 |
+| 通知推送 | `sms_notify` | 短信 / 邮件 / App 推送 |
+| 延迟任务 | `order_timeout` | 配合 `registerDelayedMessage` 定时触发 |
+
+三步接入：
+
+**1. 事务内注册**（`payload` 为字符串，序列化由业务负责，默认上限 65536 字节）：
+
+```java
+outpostTemplate.executeInTransaction(() -> {
+    jdbcTemplate.update("UPDATE orders SET status = ? WHERE id = ?", "PAID", orderId);
+    outpostTemplate.registerMessage("order_paid", orderId, "{\"orderId\":\"" + orderId + "\"}");
+    return null;
+});
+```
+
+也可用注解：
+
+```java
+@Transactional
+@OutboxMessage(bizType = "order_paid", bizKey = "#orderId", payload = "#orderId")
+public void pay(String orderId) {
+    // 业务 SQL
+}
+```
+
+**2. 实现处理器并注册为 Bean**（`bizType` 全局唯一，不得与 `cache_delete` / `cache_tag_delete` 冲突）：
+
+```java
+@Bean
+public DeliveryHandler orderPaidHandler() {
+    return new DeliveryHandler() {
+        @Override
+        public String getBizType() {
+            return "order_paid";
+        }
+
+        @Override
+        public void deliver(OutboxDeliveryMessage message) throws Exception {
+            // 必须幂等；抛 UnrecoverableDeliveryException 直接进死信
+            eventPublisher.publish(message.getBizKey(), message.getPayload());
+        }
+
+        @Override
+        public long getMaxExecutionMillis() {
+            return 3000L; // 慢调用必须声明，参与启动期超时与耦合公式校验
+        }
+    };
+}
+```
+
+**3. 纯通用场景可完全去掉 Redis**：
+
+```yaml
+outpost:
+  enabled: true
+  delivery-cache:
+    enabled: false       # 关闭内置缓存处理器与灰度回落
+  schedule:
+    lock-type: local     # 单实例部署；多实例必须用 redis
+```
+
+| `schedule.lock-type` | 实现 | 适用 |
+| --- | --- | --- |
+| `redis`（默认） | `RedisDistributedLock`（`SET NX PX` + Lua 解锁） | 多实例生产部署，需要 `StringRedisTemplate` |
+| `local` | `LocalDistributedLock`（进程内 `ReentrantLock`） | 单实例 / 本地调试 / 纯通用场景，无需 Redis |
+
+> [!IMPORTANT]
+> `local` 锁只在单 JVM 内有效。多副本部署必须使用 `redis`，否则各实例会重复扫表；CAS 抢占能保证单条消息只被一个实例抢占，但重复投递仍可能由超时重置触发，**handler 幂等是硬要求**。
+
+完整示例见 [`outpost-sample`](outpost-sample/src/main/java/com/outpost/sample)，详细契约见[接入文档 §1.1](docs/接入文档.md)。
 
 <a id="配置"></a>
 
@@ -136,14 +222,15 @@ public void updateOrder(String orderId) {
 | `outpost.enabled` | `true` | `false` 时不装配任何 Outpost Bean |
 | `outpost.table-prefix` | `outpost_` | 白名单 `^[A-Za-z0-9_]{0,32}$`，非法值启动失败 |
 | `outpost.auto-create-table` | `false` | 关闭且表缺失时，首次写入抛明确异常 |
-| `outpost.schedule.type` | `redis-lock` | 无匹配 `OutpostScheduler` 实现时启动失败 |
+| `outpost.delivery-cache.enabled` | `true` | `false` 时关闭全部内置缓存处理器与缓存便捷层 |
+| `outpost.schedule.type` | `redis-lock` | 调度器类型，无匹配 `OutpostScheduler` 实现时启动失败 |
+| `outpost.schedule.lock-type` | `redis` | `redis` / `local`，决定 `DistributedLock` 实现 |
 | `outpost.schedule.batch-size` | `100` | 区间 `[1, 1000]`，受热更耦合公式校验 |
 | `outpost.schedule.processing-timeout-seconds` | `300` | 需 ≥ 10 × handler 最大执行耗时 |
 | `outpost.retry.backoff-steps` | `1,3,10,30,60,300` | 严格单调递增，否则启动失败 |
-| `outpost.delivery-cache.enabled-namespaces` | 空 | 空 = 全部走消息表；白名单外回落同步直删并告警 |
 | `outpost.cleanup.enabled` | `true` | SUCCESS 保留 3 天、DEAD 保留 30 天 |
 
-启动期 7 项强制校验（数据源唯一、bizType 唯一、超时/耗时、耦合公式、参数区间、退避单调、队列容量）任一失败都会**终止启动**。完整配置项与偏差说明见[接入文档](docs/接入文档.md)。
+启动期强制校验（数据源唯一、bizType 唯一、超时/耗时、耦合公式、参数区间、退避单调、队列容量、锁类型）任一失败都会**终止启动**。完整配置项与偏差说明见[接入文档](docs/接入文档.md)。
 
 <a id="运维与观测"></a>
 
@@ -195,9 +282,9 @@ Boot 3 不兼容的原因：Spring Framework 6 移除了 `JdbcTemplate` 的 `que
 
 | 内容 | 路径 |
 | --- | --- |
-| 接入文档：能力边界、不支持清单、选型对比、接入 Checklist | [`docs/接入文档.md`](docs/接入文档.md) |
+| 接入文档：能力边界、通用业务消息、不支持清单、选型对比、接入 Checklist | [`docs/接入文档.md`](docs/接入文档.md) |
 | 迁移与回滚操作手册：三阶段影子验证、Drain、紧急回灌 | [`docs/迁移与回滚手册.md`](docs/迁移与回滚手册.md) |
-| 原始详细设计 | [`docs/本地消息表缓存一致性 SDK V1.0（MVP）详细设计文档.md`](docs/本地消息表缓存一致性%20SDK%20V1.0（MVP）详细设计文档.md) |
+| 原始详细设计（按规格约束保持不变） | [`docs/本地消息表缓存一致性 SDK V1.0（MVP）详细设计文档.md`](docs/本地消息表缓存一致性%20SDK%20V1.0（MVP）详细设计文档.md) |
 | DBA 建表脚本 | [`scripts/ddl/outpost_message.sql`](scripts/ddl/outpost_message.sql) |
 | 紧急回灌 | [`scripts/backfill.sql`](scripts/backfill.sql) · [`scripts/replay.sh`](scripts/replay.sh) |
 | 影子对账 | [`scripts/shadow-reconcile.sql`](scripts/shadow-reconcile.sql) · [`scripts/shadow-reconcile.sh`](scripts/shadow-reconcile.sh) |
@@ -223,7 +310,7 @@ Boot 3 不兼容的原因：Spring Framework 6 移除了 `JdbcTemplate` 的 `que
 ```
 
 - `clean install`：编译、单元测试、打包；不运行需要 Docker 的集成测试。
-- `verify`：`outpost-sample` 的 9 个 `*IT` 用例在真实 MySQL 8 + Redis 7 上执行；**Docker 不可用时由 `@Testcontainers(disabledWithoutDocker = true)` 自动跳过**，不会导致构建失败，也可显式 `-DskipITs=true`。
+- `verify`：运行 `outpost-sample` 的集成测试（缓存链路 + 通用 Outbox 链路）；**Docker 不可用时由 `@Testcontainers(disabledWithoutDocker = true)` 自动跳过**，不会导致构建失败，也可显式 `-DskipITs=true`。
 - 依赖边界检查：`.\mvnw.cmd -pl outpost-core dependency:tree`，输出中不应出现 `spring-boot-*`。
 
 运行示例（默认 `outpost.enabled=false`，无 MySQL/Redis 也能启动；先执行一次 `clean install` 安装本仓库依赖）：
@@ -232,6 +319,8 @@ Boot 3 不兼容的原因：Spring Framework 6 移除了 `JdbcTemplate` 的 `que
 .\mvnw.cmd clean install
 .\mvnw.cmd -pl outpost-sample spring-boot:run '-Dspring-boot.run.profiles=demo'
 ```
+
+`package` 后可执行 jar 为 `outpost-sample/target/outpost-sample-1.0.0-SNAPSHOT-exec.jar`；主 artifact 保留为普通 jar（`classifier=exec`），避免 Boot 的 `BOOT-INF/classes` 结构破坏集成测试 classpath。
 
 <a id="关键约束与限制"></a>
 
@@ -243,6 +332,7 @@ Boot 3 不兼容的原因：Spring Framework 6 移除了 `JdbcTemplate` 的 `que
 - 消息注册必须在**事务最外层**，且消息表与业务表共用同一个 `DataSource` bean 实例；不在事务内注册会立即抛异常。
 - `handler-type=cache_tag_delete` 时**必须**显式配置 `outpost.delivery-cache.tag.read-client`（`builtin` / `external`），读路径必须改用 hash 语义，普通 `GET` 会 `WRONGTYPE`。
 - 投递处理器必须**天然幂等**；超时重置、锁过期都可能造成重复投递。
+- `schedule.lock-type=local` **仅单实例有效**，多副本必须用 `redis`。
 - 不提供：强一致性、本地缓存失效、跨库/跨服务事务、消息顺序性、通用幂等屏障、NESTED savepoint 内消息撤销、rockscache 强一致读。完整清单见[接入文档 §2](docs/接入文档.md)。
 
 <a id="许可证"></a>
