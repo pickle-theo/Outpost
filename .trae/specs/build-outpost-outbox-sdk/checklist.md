@@ -6,7 +6,7 @@
 - [x] `auto-create-table` 默认关闭；关闭且表不存在时首次写入抛出明确异常
 - [x] 非法 `table-prefix` 启动失败，不拼接进任何 SQL
 - [x] `OutpostProperties` 覆盖 §10 全部配置项并设置默认值
-- [x] 启动期 7 项校验（数据源、bizType 唯一、超时/耗时、耦合公式、参数区间、退避单调、队列容量）均实现且失败即阻止启动
+- [x] 启动期 8 项校验（数据源、bizType 唯一、超时/耗时、耦合公式、参数区间、退避单调、队列容量、锁类型）均实现且失败即阻止启动
 - [x] 无事务上下文调用注册 API 立即抛异常，且告警日志全局只打印一次
 - [x] 业务事务回滚后 `outpost_message` 无残留消息（集成测试验证）
 - [x] `REQUIRES_NEW` 事务独立聚合，外层回滚不影响内层已提交消息
@@ -36,7 +36,7 @@
 - [x] 日志统一携带 `message_id`/`biz_type`/`biz_key`/`trace_id`，堆栈仅 DEBUG
 - [x] 同时提供 `spring.factories` 与 `AutoConfiguration.imports`；`outpost.enabled=false` 时不装配任何 bean
 - [x] 源码静态检查无 `javax.*` / `jakarta.*` 引用
-- [x] Testcontainers 集成测试覆盖 9 类核心场景（含 tag 模式端到端）并在 Docker 环境全绿；无 Docker 时跳过
+- [x] Testcontainers 集成测试覆盖 9 类缓存核心场景 + 7 项通用 Outbox 场景（含 tag 模式端到端、无 Redis 链路）并在 Docker 环境全绿；无 Docker 时跳过
 - [x] 交付物齐全：DDL、接入文档（含不支持清单、两种处理器选型对比与接入 Checklist）、迁移回滚手册、回灌脚本、对账脚本、Grafana 看板、README
 
 # 验证记录与待复验项
@@ -45,11 +45,12 @@
 
 - `.\mvnw.cmd clean install`（Spring Boot 2.7.18，默认）：三模块编译、单元测试、打包全绿。
 - `.\mvnw.cmd -Pboot23 clean test`（Spring Boot 2.3.12.RELEASE）：编译与全部单元测试全绿。
-- `.\mvnw.cmd verify`：本机无 Docker，9 个 `*IT` 用例全部跳过（completed=9 / skipped=9 / failures=0 / errors=0），构建成功。
-- `outpost-core` 依赖树无 `spring-boot-*`；主源码除 JDK 自带 `javax.sql.DataSource` 外无 `javax.*` / `jakarta.*`；Grafana JSON 解析通过（8 个 panel）。
-- 自动装配上下文测试 7 项（总开关、全链路加载、非法表前缀、未知调度类型、重复 bizType、耦合公式、Micrometer 启用/降级）通过。
+- `.\mvnw.cmd verify`：本机无 Docker，16 个 `*IT` 用例全部跳过（completed=16 / skipped=16 / failures=0 / errors=0），构建成功。
+- 184 个单元测试全绿，其中通用 Outbox 改造新增 12 项（无 Redis 上下文 5、本地锁 3、锁类型校验 4）。
+- `outpost-core` 依赖树无 `spring-boot-*`；主源码除 JDK 自带 `javax.sql.DataSource` 外无 `javax.*` / `jakarta.*`；Grafana JSON 解析通过（8 个 panel）；README 20 个相对链接与全部目录锚点有效。
+- 自动装配上下文测试 12 项（总开关、全链路加载、非法表前缀、未知调度类型、重复 bizType、耦合公式、Micrometer 启用/降级，以及无 Redis 通用场景 5 项）通过。
 
 待外部复验：
 
-- 第 39 项「Docker 环境全绿」：本机无 Docker，只验证了「无 Docker 时跳过」；需在含 Docker 的 CI 执行 `.\mvnw.cmd verify` 复验 9 类场景。
+- 第 39 项「Docker 环境全绿」：本机无 Docker，只验证了「无 Docker 时跳过」；需在含 Docker 的 CI 执行 `.\mvnw.cmd verify` 复验缓存 9 类 + 通用 Outbox 7 项场景。
 - Boot 3.x 运行时兼容性：已「尝试并给出结论」——不兼容，V1 不发布，详见 `docs/接入文档.md` §9。

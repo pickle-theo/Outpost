@@ -128,8 +128,16 @@
 # 验证记录
 
 - `.\mvnw.cmd clean install`（默认 Spring Boot 2.7.18）：三模块编译、单元测试、打包通过。
-- `.\mvnw.cmd verify`：加入 failsafe 集成测试；本机无 Docker，9 个 `*IT` 用例由 `@Testcontainers(disabledWithoutDocker = true)` 全部跳过，构建成功（failsafe-summary：completed=9 / skipped=9 / failures=0 / errors=0）。**有 Docker 的 CI 需复验 9 类场景全绿**。
+- `.\mvnw.cmd verify`：加入 failsafe 集成测试；本机无 Docker，16 个 `*IT` 用例由 `@Testcontainers(disabledWithoutDocker = true)` 全部跳过，构建成功（failsafe-summary：completed=16 / skipped=16 / failures=0 / errors=0）。**有 Docker 的 CI 需复验缓存 9 类 + 通用 Outbox 7 项场景全绿**。
 - `.\mvnw.cmd -Pboot23 clean test`（Spring Boot 2.3.12.RELEASE）：编译与全部单元测试通过，覆盖 Boot 2.3 / 2.7 两个目标版本的上下文加载。
 - Boot 3.x 兼容性验证结论（V1 不发布）：已提供 `AutoConfiguration.imports` 声明；运行时不兼容，原因是 Spring Framework 6 移除 `JdbcTemplate` 旧重载且 Boot 3 要求 JDK 17 + Jakarta，详见 `docs/接入文档.md` §9。
 - 静态检查：主源码除 JDK 自带 `javax.sql.DataSource` 外无 `javax.*` / `jakarta.*` 引用；Grafana JSON 解析通过（8 个 panel）；`outpost-core` 依赖树无 `spring-boot-*`。
 - 相对既有内核的额外补齐：`OutpostAdminRepository` 运维/清理 SQL、`OutpostAdminService`、`MessageCleanupTask` / `OutpostCleanupScheduler`、`MicrometerOutpostMetrics`（8 指标）、`OutpostAutoConfiguration` 全套自动装配、`OutboxTableGuard` 首次写入 DDL 提示、`@OutboxCache.doubleDeleteDelayMills` 注解级延迟生效、`DynamicBackoffPolicy` 热更生效。
+
+# 通用 Outbox 改造（P0~P2）
+
+- P0 定位：`README.md` 改为「通用 Transactional Outbox SDK，内置缓存一致性处理器」并新增「通用业务消息」章节；`docs/接入文档.md` 新增 §1.1 通用业务消息（API、SPI、幂等契约、慢调用耗时上界、锁选择、V1 全局配额限制）。按规格约束未改动 `docs/` 下既有详细设计文档。
+- P1 解耦：新增 `outpost.schedule.lock-type`（`redis` 默认 / `local`）与启动期校验；新增 `LocalDistributedLock`（CAS 标志，避免可重入导致锁失效）、`OutpostRedisRequirement` / `OutpostRedisRequiredCondition`；`StringRedisTemplate` 装配与启动校验改为按「缓存启用或 redis 锁且无自定义锁」判定；`DistributedLock` 按锁类型装配。纯通用场景可完全不依赖 Redis。
+- P2 示例与验证：`outpost-sample` 新增 `OrderPaidHandler`、`@OutboxMessage` 示例与 demo runner 通用消息；新增 `OutpostGenericIT`（仅 MySQL 容器、无 Redis），覆盖事务回滚、注解注册、延迟消息、不可恢复死信重发、并发 CAS；`spring-boot-maven-plugin` repackage 增加 `classifier=exec`，避免可执行 jar 破坏 failsafe classpath。
+- 验证：184 个单元测试全绿（其中新增 12 项：通用上下文 5、本地锁 3、锁类型校验 4）；16 个 IT 无 Docker 时全部跳过；`-Pboot23 clean test` 通过；`outpost-core` 依赖树仍无 `spring-boot-*`；README 20 个相对链接与全部目录锚点有效。
+- 未实施（后续阶段）：P3 多 bizType 独立配额/线程池隔离/指标维度；P4 Boot 3 兼容与发布治理。
