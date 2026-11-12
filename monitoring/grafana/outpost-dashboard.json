@@ -1,0 +1,126 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "Outpost 本地消息表 SDK V1.0 - 8 个固定指标看板。Micrometer Prometheus 导出时指标名中的点转为下划线，Timer 追加 _seconds 后缀。",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "id": 1,
+      "title": "1. 消息生产速率 (outpost.message.produce.total)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(outpost_message_produce_total[5m]))", "legendFormat": "produce/s", "refId": "A" }
+      ]
+    },
+    {
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+      "id": 2,
+      "title": "2. 投递成功 / 失败 (delivery.success.total / delivery.fail.total)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(outpost_message_delivery_success_total[5m]))", "legendFormat": "success/s", "refId": "A" },
+        { "expr": "sum(rate(outpost_message_delivery_fail_total[5m]))", "legendFormat": "fail/s", "refId": "B" }
+      ]
+    },
+    {
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "id": 3,
+      "title": "3. 当前死信数 (outpost.message.dead.gauge)",
+      "type": "stat",
+      "targets": [
+        { "expr": "max(outpost_message_dead_gauge)", "legendFormat": "dead", "refId": "A" }
+      ]
+    },
+    {
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 0.01 }, { "color": "red", "value": 0.05 } ] } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "id": 4,
+      "title": "4. 重复投递占比 (outpost.message.redelivery.ratio)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "max(outpost_message_redelivery_ratio)", "legendFormat": "ratio", "refId": "A" }
+      ]
+    },
+    {
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "id": 5,
+      "title": "5. 单轮调度平均耗时 (outpost.schedule.duration.ms)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(outpost_schedule_duration_ms_seconds_sum[5m])) / sum(rate(outpost_schedule_duration_ms_seconds_count[5m])) * 1000", "legendFormat": "schedule avg ms", "refId": "A" }
+      ]
+    },
+    {
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "id": 6,
+      "title": "6. 单条投递 P99 耗时 (outpost.delivery.duration.ms)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "histogram_quantile(0.99, sum(rate(outpost_delivery_duration_ms_seconds_bucket[5m])) by (le)) * 1000", "legendFormat": "delivery p99 ms", "refId": "A" }
+      ]
+    },
+    {
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "id": 7,
+      "title": "7. 重试次数分布 (outpost.retry.count.distribution)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(outpost_retry_count_distribution_sum[5m])) / sum(rate(outpost_retry_count_distribution_count[5m]))", "legendFormat": "avg retry count", "refId": "A" },
+        { "expr": "max(outpost_retry_count_distribution_max)", "legendFormat": "max retry count", "refId": "B" }
+      ]
+    },
+    {
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "id": 8,
+      "title": "8. 投递失败率（由 success/fail 两个指标派生）",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(outpost_message_delivery_fail_total[5m])) / clamp_min(sum(rate(outpost_message_delivery_success_total[5m])) + sum(rate(outpost_message_delivery_fail_total[5m])), 0.0001)", "legendFormat": "fail ratio", "refId": "A" }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 30,
+  "style": "dark",
+  "tags": [ "outpost", "outbox", "cache-consistency" ],
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "label": "Prometheus",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0,
+        "refresh": 1,
+        "regex": ""
+      }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Outpost 本地消息表 SDK V1.0",
+  "uid": "outpost-v1",
+  "version": 1
+}
