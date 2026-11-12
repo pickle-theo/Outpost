@@ -73,6 +73,10 @@
                         <goals>
                             <goal>repackage</goal>
                         </goals>
+                        <configuration>
+                            <!-- 保留普通 jar 作为主 artifact，避免 failsafe 在 BOOT-INF/classes 下找不到主类 -->
+                            <classifier>exec</classifier>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>

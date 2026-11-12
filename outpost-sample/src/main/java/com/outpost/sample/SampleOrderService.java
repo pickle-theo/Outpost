@@ -1,6 +1,7 @@
 package com.outpost.sample;
 
 import com.outpost.core.annotation.OutboxCache;
+import com.outpost.core.annotation.OutboxMessage;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,5 +21,17 @@ public class SampleOrderService {
             throw new IllegalArgumentException("orderId 不能为空");
         }
         // jdbcTemplate.update("UPDATE orders SET status = ? WHERE id = ?", status, orderId);
+    }
+
+    /**
+     * 通用业务消息示例：与缓存无关，由 {@link OrderPaidHandler} 消费。
+     */
+    @Transactional
+    @OutboxMessage(bizType = OrderPaidHandler.BIZ_TYPE, bizKey = "#orderId", payload = "#orderId")
+    public void markPaid(String orderId) {
+        if (orderId == null || orderId.trim().isEmpty()) {
+            throw new IllegalArgumentException("orderId 不能为空");
+        }
+        // jdbcTemplate.update("UPDATE orders SET status = 'PAID' WHERE id = ?", orderId);
     }
 }

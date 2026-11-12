@@ -25,12 +25,20 @@ public class SampleApplication {
     public CommandLineRunner outpostDemo(OutpostTemplate template,
                                          SampleOrderService orderService) {
         return args -> {
+            // 缓存一致性（内置场景）
             template.executeInTransaction(() -> {
                 template.registerCacheInvalidate("order",
                         Collections.singletonList("order:1"));
                 return null;
             });
             orderService.updateOrder("2");
+
+            // 通用业务消息（任意 bizType）
+            template.executeInTransaction(() -> {
+                template.registerMessage(OrderPaidHandler.BIZ_TYPE, "order:3", "order:3");
+                return null;
+            });
+            orderService.markPaid("4");
         };
     }
 }
